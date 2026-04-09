@@ -759,6 +759,7 @@ model Lease {
   unit        Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
   application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   payments    Payment[]
+  maintenanceRequests MaintenanceRequest[]
 
   @@index([companyId])
   @@index([unitId])
@@ -854,6 +855,62 @@ enum ListingStatus {
   PAUSED
   ERROR
   REMOVED
+}
+
+// ============================================================
+// MAINTENANCE REQUESTS (Resident Portal)
+// ============================================================
+
+model MaintenanceRequest {
+  id      String @id @default(cuid())
+  leaseId String
+  unitId  String
+
+  title       String
+  description String
+  category    MaintenanceCategory
+  priority    MaintenancePriority @default(NORMAL)
+  status      MaintenanceStatus   @default(SUBMITTED)
+
+  photos      Json?   // Array of photo URLs
+  assignedTo  String? // Staff name or vendor
+  notes       String?
+
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([leaseId])
+  @@index([status])
+  @@map("maintenance_requests")
+}
+
+enum MaintenanceCategory {
+  PLUMBING
+  ELECTRICAL
+  APPLIANCE
+  HVAC
+  PEST
+  LOCK_KEY
+  STRUCTURAL
+  OTHER
+}
+
+enum MaintenancePriority {
+  LOW
+  NORMAL
+  HIGH
+  EMERGENCY
+}
+
+enum MaintenanceStatus {
+  SUBMITTED
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 }
 
 // ============================================================
