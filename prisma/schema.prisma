@@ -1,0 +1,869 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// MULTI-TENANT CORE
+// ============================================================
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logoUrl   String?
+  website   String?
+  phone     String?
+  email     String?
+  address   String?
+  city      String?
+  state     String?
+  zip       String?
+
+  // Subscription / billing
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  plan                 Plan     @default(STARTER)
+  unitCount            Int      @default(0)
+
+  // Settings
+  settings Json @default("{}")
+
+  // Portfolio browsing toggle — allows prospects to search across all properties
+  portfolioBrowsingEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  regions    Region[]
+  properties Property[]
+  users      User[]
+  agents     Agent[]
+  prospects  Prospect[]
+  leases     Lease[]
+
+  @@map("companies")
+}
+
+enum Plan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model Region {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String  // e.g. "Center City Philadelphia", "Pittsburgh"
+  timezone  String  @default("America/New_York")
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  properties Property[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@map("regions")
+}
+
+// ============================================================
+// PROPERTIES & UNITS
+// ============================================================
+
+model Property {
+  id        String @id @default(cuid())
+  companyId String
+  regionId  String?
+
+  name        String
+  slug        String
+  address     String
+  city        String
+  state       String
+  zip         String
+  latitude    Float?
+  longitude   Float?
+  phone       String?
+  email       String?
+  website     String?  // Custom branded domain
+  description String?
+  imageUrl    String?
+
+  // Listing details
+  yearBuilt    Int?
+  totalUnits   Int?
+  stories      Int?
+  propertyType PropertyType @default(APARTMENT)
+  petPolicy    Json?        // { allowed: true, maxPets: 2, weightLimit: 75, monthlyRent: 35, deposit: 500 }
+
+  // Office hours
+  officeHours Json? // { mon: { open: "09:00", close: "18:00" }, tue: ... }
+
+  // Branding
+  brandColor   String?  // hex
+  brandLogoUrl String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  region   Region?  @relation(fields: [regionId], references: [id], onDelete: SetNull)
+
+  units          Unit[]
+  floorPlans     FloorPlan[]
+  amenities      PropertyAmenity[]
+  photos         PropertyPhoto[]
+  agentProperties AgentProperty[]
+  tours          Tour[]
+  applications   Application[]
+  listings       Listing[]
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+  @@index([regionId])
+  @@map("properties")
+}
+
+enum PropertyType {
+  APARTMENT
+  CONDO
+  TOWNHOUSE
+  MIXED_USE
+  STUDENT
+}
+
+model PropertyPhoto {
+  id         String  @id @default(cuid())
+  propertyId String
+  url        String
+  caption    String?
+  sortOrder  Int     @default(0)
+  category   String? // "exterior", "amenity", "common_area"
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("property_photos")
+}
+
+model PropertyAmenity {
+  id         String @id @default(cuid())
+  propertyId String
+  name       String
+  category   String // "building", "unit", "outdoor", "fitness", "community"
+  icon       String? // Material icon name
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, name])
+  @@map("property_amenities")
+}
+
+model FloorPlan {
+  id         String @id @default(cuid())
+  propertyId String
+
+  name       String   // e.g. "Residence A", "Studio Classic"
+  bedrooms   Int
+  bathrooms  Float
+  sqft       Int?
+  basePrice  Float    // Starting price
+  imageUrl   String?
+  modelUrl   String?  // 3D tour / Matterport link
+
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  units    Unit[]
+
+  @@index([propertyId])
+  @@map("floor_plans")
+}
+
+model Unit {
+  id          String @id @default(cuid())
+  propertyId  String
+  floorPlanId String?
+
+  unitNumber  String
+  floor       Int?
+  bedrooms    Int
+  bathrooms   Float
+  sqft        Int?
+  marketRent  Float?   // Current asking rent
+
+  // Availability pipeline
+  status      UnitStatus @default(VACANT)
+  availableDate DateTime?
+  moveOutDate   DateTime?  // For notice-given units
+
+  // Features specific to this unit
+  features    Json?  // { "view": "city", "washerDryer": true, "balcony": true }
+
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  property  Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  floorPlan FloorPlan? @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
+
+  leases         Lease[]
+  tourUnits      TourUnit[]
+  applications   Application[]
+
+  @@unique([propertyId, unitNumber])
+  @@index([propertyId])
+  @@index([status])
+  @@map("units")
+}
+
+enum UnitStatus {
+  VACANT
+  OCCUPIED
+  NOTICE_GIVEN
+  MAINTENANCE
+  MODEL
+  OFFLINE
+}
+
+// ============================================================
+// USERS & AGENTS
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  companyId     String?
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  name          String?
+  image         String?
+  phone         String?
+  role          UserRole  @default(AGENT)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agent    Agent?
+  accounts Account[]
+  sessions Session[]
+
+  @@index([companyId])
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN     // Platform admin (us)
+  COMPANY_ADMIN   // Company owner / executive
+  REGIONAL_MANAGER
+  PROPERTY_MANAGER
+  AGENT
+}
+
+model Agent {
+  id        String @id @default(cuid())
+  userId    String @unique
+  companyId String
+
+  title     String?  // "Leasing Agent", "Property Manager"
+  bio       String?
+  photoUrl  String?
+  phone     String?
+
+  // Transportation config for travel time calculations
+  transportMode TransportMode @default(CAR)
+  homeBase      String?        // Address for start-of-day routing
+  homeLatitude  Float?
+  homeLongitude Float?
+  bufferMinutes Int            @default(15) // Default travel buffer between properties
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  agentProperties AgentProperty[]
+  tours           Tour[]
+  tourSlots       TourSlot[]
+  tasks           AgentTask[]
+
+  @@index([companyId])
+  @@map("agents")
+}
+
+enum TransportMode {
+  CAR
+  TRANSIT
+  BIKE
+  WALK
+}
+
+// Many-to-many: agents can be assigned to multiple properties
+model AgentProperty {
+  id         String @id @default(cuid())
+  agentId    String
+  propertyId String
+  isPrimary  Boolean @default(false) // Primary PM for this property
+
+  agent    Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, propertyId])
+  @@map("agent_properties")
+}
+
+// ============================================================
+// AUTH (NextAuth)
+// ============================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================================
+// TOURS & SCHEDULING
+// ============================================================
+
+model TourSlot {
+  id      String @id @default(cuid())
+  agentId String
+
+  // Slot type: specific date or recurring pattern
+  type       SlotType @default(SPECIFIC)
+  dayOfWeek  Int?     // 0=Sun, 1=Mon, ... 6=Sat (for recurring)
+  date       DateTime? // Specific date (for one-off)
+  startTime  String   // "09:00" 24h format
+  endTime    String   // "09:30"
+
+  // Recurring config
+  repeatEvery RepeatInterval?
+  repeatUntil DateTime?
+
+  isActive Boolean @default(true)
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("tour_slots")
+}
+
+enum SlotType {
+  SPECIFIC
+  RECURRING
+}
+
+enum RepeatInterval {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+model Tour {
+  id         String @id @default(cuid())
+  propertyId String
+  agentId    String?
+
+  // Prospect info
+  prospectId   String?
+  prospectName  String
+  prospectEmail String
+  prospectPhone String?
+
+  // Scheduling
+  scheduledDate DateTime
+  scheduledTime String   // "14:00"
+  duration      Int      @default(30) // minutes
+  tourType      TourType @default(IN_PERSON)
+
+  // Status
+  status    TourStatus @default(SCHEDULED)
+  notes     String?
+  feedback  String?     // Post-tour notes from agent
+
+  // Travel (auto-calculated)
+  travelTimeFromPrev Int? // minutes from previous appointment
+  travelTimeToNext   Int? // minutes to next appointment
+
+  confirmedAt  DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+  noShowAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  agent    Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  prospect Prospect? @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+
+  tourUnits TourUnit[]
+
+  @@index([propertyId])
+  @@index([agentId])
+  @@index([scheduledDate])
+  @@index([prospectId])
+  @@map("tours")
+}
+
+enum TourType {
+  IN_PERSON
+  VIDEO
+  SELF_GUIDED
+}
+
+enum TourStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+
+// Units shown during a tour
+model TourUnit {
+  id     String @id @default(cuid())
+  tourId String
+  unitId String
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([tourId, unitId])
+  @@map("tour_units")
+}
+
+// ============================================================
+// PROSPECTS & CRM
+// ============================================================
+
+model Prospect {
+  id        String  @id @default(cuid())
+  companyId String
+
+  firstName    String
+  lastName     String
+  email        String
+  phone        String?
+
+  // Preferences
+  desiredBedrooms  Int?
+  desiredBathrooms Float?
+  budgetMin        Float?
+  budgetMax        Float?
+  desiredMoveIn    DateTime?
+  hasPets          Boolean @default(false)
+  petDetails       String?
+
+  // Pipeline
+  status    ProspectStatus @default(INQUIRY)
+  source    String?         // "website", "zillow", "apartments.com", "walk_in", "referral"
+  sourceDetail String?     // Specific listing URL or referral name
+
+  // Assignment
+  assignedAgentId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tours         Tour[]
+  applications  Application[]
+  communications Communication[]
+  tasks         AgentTask[]
+
+  @@index([companyId])
+  @@index([email])
+  @@index([status])
+  @@map("prospects")
+}
+
+enum ProspectStatus {
+  INQUIRY
+  TOUR_SCHEDULED
+  TOURED
+  APPLIED
+  APPROVED
+  LEASE_SENT
+  LEASE_SIGNED
+  MOVED_IN
+  LOST
+  WAITLIST
+}
+
+model Communication {
+  id         String @id @default(cuid())
+  prospectId String
+
+  type       CommType
+  direction  CommDirection
+  subject    String?
+  body       String
+  sentAt     DateTime @default(now())
+  readAt     DateTime?
+
+  // Metadata
+  fromEmail  String?
+  toEmail    String?
+  fromPhone  String?
+  toPhone    String?
+  messageId  String?  // External SMS/email ID
+
+  prospect Prospect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+
+  @@index([prospectId])
+  @@map("communications")
+}
+
+enum CommType {
+  EMAIL
+  SMS
+  PHONE_CALL
+  IN_PERSON
+  CHAT
+}
+
+enum CommDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model AgentTask {
+  id        String @id @default(cuid())
+  agentId   String
+  prospectId String?
+
+  title     String
+  description String?
+  dueDate   DateTime?
+  priority  TaskPriority @default(NORMAL)
+  status    AgentTaskStatus @default(PENDING)
+
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  prospect Prospect? @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+
+  @@index([agentId])
+  @@index([dueDate])
+  @@map("agent_tasks")
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum AgentTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ============================================================
+// APPLICATIONS & SCREENING
+// ============================================================
+
+model Application {
+  id         String @id @default(cuid())
+  prospectId String
+  propertyId String
+  unitId     String?
+
+  // Applicant info
+  firstName    String
+  lastName     String
+  email        String
+  phone        String
+  dateOfBirth  DateTime?
+  ssn          String?     // Encrypted
+  currentAddress String?
+
+  // Employment
+  employer     String?
+  jobTitle     String?
+  monthlyIncome Float?
+  employmentLength String?
+
+  // References
+  references Json? // [{ name, phone, relationship }]
+
+  // Documents
+  documents  ApplicationDocument[]
+
+  // Screening
+  screeningStatus  ScreeningStatus @default(NOT_STARTED)
+  screeningResult  Json?  // { creditScore, backgroundCheck, evictionHistory }
+  screeningVendorId String? // External screening service reference
+
+  // Decision
+  status       ApplicationStatus @default(SUBMITTED)
+  decisionNote String?
+  decidedAt    DateTime?
+  decidedBy    String?
+
+  // Fees
+  applicationFee Float?
+  feePaymentId   String? // Stripe payment intent
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  prospect Prospect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit     Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  lease    Lease?
+
+  @@index([prospectId])
+  @@index([propertyId])
+  @@index([status])
+  @@map("applications")
+}
+
+enum ScreeningStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  SCREENING
+  APPROVED
+  DENIED
+  CANCELLED
+  WAITLISTED
+}
+
+model ApplicationDocument {
+  id            String @id @default(cuid())
+  applicationId String
+  name          String
+  type          DocumentType
+  url           String
+  uploadedAt    DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("application_documents")
+}
+
+enum DocumentType {
+  PAY_STUB
+  BANK_STATEMENT
+  TAX_RETURN
+  ID_FRONT
+  ID_BACK
+  EMPLOYMENT_LETTER
+  RENTAL_HISTORY
+  PET_RECORDS
+  OTHER
+}
+
+// ============================================================
+// LEASES
+// ============================================================
+
+model Lease {
+  id            String @id @default(cuid())
+  companyId     String
+  unitId        String
+  applicationId String? @unique
+
+  // Tenants
+  primaryTenantName  String
+  primaryTenantEmail String
+  primaryTenantPhone String?
+
+  // Terms
+  leaseStart    DateTime
+  leaseEnd      DateTime
+  monthlyRent   Float
+  securityDeposit Float?
+  moveInFee     Float?     // Amenity fee, admin fee, etc.
+  leaseTerm     Int?       // months
+
+  // Status
+  status        LeaseStatus @default(DRAFT)
+
+  // Documents
+  leaseDocumentUrl String?
+  signedAt         DateTime?
+
+  // Renewal
+  renewalOffered   Boolean @default(false)
+  renewalDeadline  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  unit        Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  payments    Payment[]
+
+  @@index([companyId])
+  @@index([unitId])
+  @@index([status])
+  @@map("leases")
+}
+
+enum LeaseStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  ACTIVE
+  EXPIRING_SOON
+  MONTH_TO_MONTH
+  TERMINATED
+  EXPIRED
+}
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+
+model Payment {
+  id      String @id @default(cuid())
+  leaseId String
+
+  amount      Float
+  type        PaymentType
+  status      PaymentStatus @default(PENDING)
+  dueDate     DateTime?
+  paidAt      DateTime?
+
+  stripePaymentIntentId String?
+  stripeInvoiceId       String?
+
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([leaseId])
+  @@index([status])
+  @@map("payments")
+}
+
+enum PaymentType {
+  RENT
+  SECURITY_DEPOSIT
+  APPLICATION_FEE
+  MOVE_IN_FEE
+  PET_DEPOSIT
+  PET_RENT
+  LATE_FEE
+  UTILITY
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+// ============================================================
+// ILS SYNDICATION
+// ============================================================
+
+model Listing {
+  id         String @id @default(cuid())
+  propertyId String
+
+  platform   String  // "zillow", "apartments.com", "rent.com"
+  externalId String? // ID on the external platform
+  listingUrl String?
+  status     ListingStatus @default(ACTIVE)
+  lastSyncAt DateTime?
+  syncError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, platform])
+  @@map("listings")
+}
+
+enum ListingStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+  REMOVED
+}
+
+// ============================================================
+// SETTINGS & CONFIG
+// ============================================================
+
+model Settings {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+
+  @@map("settings")
+}
