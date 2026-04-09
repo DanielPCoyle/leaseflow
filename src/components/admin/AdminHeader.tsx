@@ -21,6 +21,7 @@ const mobileNavItems = [
   { href: "/admin/tours", label: "Tours", icon: "calendar_month" },
   { href: "/admin/applications", label: "Applications", icon: "description" },
   { href: "/admin/leases", label: "Leases", icon: "handshake" },
+  { href: "/admin/listings", label: "Listings", icon: "rss_feed" },
   { href: "/admin/reports", label: "Reports", icon: "bar_chart" },
   { href: "/admin/settings", label: "Settings", icon: "settings" },
 ];
