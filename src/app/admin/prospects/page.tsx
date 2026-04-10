@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { getPagination, getPaginationMeta } from "@/lib/pagination";
+import { Pagination } from "@/components/admin/Pagination";
 
 const pipelineStages = [
   { status: "INQUIRY", label: "Inquiry", icon: "mail", color: "primary" },
@@ -26,13 +28,14 @@ const colorClasses: Record<string, string> = {
 export default async function ProspectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; search?: string }>;
+  searchParams: Promise<{ status?: string; search?: string; page?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.companyId) redirect("/login");
 
   const filters = await searchParams;
   const companyId = session.user.companyId;
+  const { skip, take, page, pageSize } = getPagination(filters);
 
   const where: Record<string, unknown> = { companyId };
   if (filters.status) where.status = filters.status;
@@ -44,21 +47,25 @@ export default async function ProspectsPage({
     ];
   }
 
-  const [prospects, statusCounts] = await Promise.all([
+  const [prospects, totalCount, statusCounts] = await Promise.all([
     prisma.prospect.findMany({
       where,
       include: {
         _count: { select: { tours: true, applications: true } },
       },
       orderBy: { updatedAt: "desc" },
-      take: 200,
+      skip,
+      take,
     }),
+    prisma.prospect.count({ where }),
     prisma.prospect.groupBy({
       by: ["status"],
       where: { companyId },
       _count: true,
     }),
   ]);
+
+  const meta = getPaginationMeta(totalCount, page, pageSize);
 
   const counts = statusCounts.reduce(
     (acc, s) => { acc[s.status] = s._count; return acc; },
@@ -215,6 +222,15 @@ export default async function ProspectsPage({
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        basePath="/admin/prospects"
+        currentPage={meta.page}
+        totalPages={meta.totalPages}
+        total={meta.total}
+        pageSize={meta.pageSize}
+        searchParams={{ status: filters.status, search: filters.search }}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthenticatedUser, unauthorized, notFound } from "@/lib/api-auth";
+import { sendApplicationDecision } from "@/lib/email";
 
 export async function GET(
   _request: NextRequest,
@@ -51,7 +52,19 @@ export async function PATCH(
   const application = await prisma.application.update({
     where: { id },
     data: { ...body, ...extraData },
+    include: { property: { select: { name: true } } },
   });
+
+  // Send decision email on approve/deny (non-blocking)
+  if (body.status === "APPROVED" || body.status === "DENIED") {
+    sendApplicationDecision({
+      to: application.email,
+      applicantName: `${application.firstName} ${application.lastName}`,
+      propertyName: application.property.name,
+      decision: body.status,
+      decisionNote: body.decisionNote,
+    }).catch((err) => console.error("Decision email failed:", err));
+  }
 
   // Update prospect status based on application decision
   if (existing.prospectId && body.status) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sendApplicationConfirmation } from "@/lib/email";
 
 /**
  * Public endpoint: Submit a rental application.
@@ -94,8 +95,26 @@ export async function POST(request: NextRequest) {
     },
     include: {
       property: { select: { name: true } },
+      unit: { select: { unitNumber: true } },
     },
   });
+
+  // Fetch application fee from company settings
+  const company = await prisma.company.findUnique({
+    where: { id: property.companyId },
+    select: { settings: true },
+  });
+  const settings = company?.settings as Record<string, unknown> | null;
+  const applicationFee = (settings?.applicationFee as number) || 50;
+
+  // Send confirmation email (non-blocking)
+  sendApplicationConfirmation({
+    to: email,
+    applicantName: `${firstName} ${lastName}`,
+    propertyName: application.property.name,
+    unitNumber: application.unit?.unitNumber ?? null,
+    applicationFee,
+  }).catch((err) => console.error("Application confirmation email failed:", err));
 
   return NextResponse.json(
     {
