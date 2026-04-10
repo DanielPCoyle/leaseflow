@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 
 interface AdminHeaderProps {
   user: {
@@ -57,6 +58,13 @@ export function AdminHeader({ user }: AdminHeaderProps) {
               <p className="text-xs text-muted">{roleLabel}</p>
             </div>
           </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="rounded-lg p-2 text-muted hover:bg-surface hover:text-danger transition-colors"
+            title="Sign out"
+          >
+            <span className="material-icons text-[20px]">logout</span>
+          </button>
         </div>
       </header>
 

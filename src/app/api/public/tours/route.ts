@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAvailableSlots, aggregateSlots } from "@/lib/availability";
+import { sendTourConfirmation } from "@/lib/email";
 
 /**
  * Public endpoint: Submit a tour booking request.
@@ -119,6 +120,20 @@ export async function POST(request: NextRequest) {
       agent: { include: { user: { select: { name: true } } } },
     },
   });
+
+  // Send confirmation email (non-blocking, logs errors)
+  const propertyAddress = `${tour.property.address}, ${tour.property.city}, ${tour.property.state} ${tour.property.zip}`;
+  sendTourConfirmation({
+    to: prospectEmail,
+    prospectName,
+    propertyName: tour.property.name,
+    propertyAddress,
+    propertyPhone: tour.property.phone,
+    agentName: tour.agent?.user.name ?? null,
+    scheduledDate: tour.scheduledDate.toISOString(),
+    scheduledTime: tour.scheduledTime,
+    tourType: tour.tourType,
+  }).catch((err) => console.error("Tour confirmation email failed:", err));
 
   return NextResponse.json(
     {

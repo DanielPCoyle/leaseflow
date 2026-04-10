@@ -631,7 +631,7 @@ model Application {
   email        String
   phone        String
   dateOfBirth  DateTime?
-  ssn          String?     // Encrypted
+  // SSN is intentionally NOT stored - handled by external screening vendor via tokenized flow
   currentAddress String?
 
   // Employment

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthenticatedUser, unauthorized, badRequest } from "@/lib/api-auth";
 import { estimateTravelTime } from "@/lib/travel";
+import { sendTourConfirmation } from "@/lib/email";
 import { TransportMode } from "@/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
@@ -139,11 +140,25 @@ export async function POST(request: NextRequest) {
       }),
     },
     include: {
-      property: { select: { name: true } },
+      property: { select: { name: true, address: true, city: true, state: true, zip: true, phone: true } },
       agent: { include: { user: { select: { name: true } } } },
       tourUnits: { include: { unit: true } },
     },
   });
+
+  // Send confirmation email (non-blocking)
+  const fullAddress = `${tour.property.address}, ${tour.property.city}, ${tour.property.state} ${tour.property.zip}`;
+  sendTourConfirmation({
+    to: prospectEmail,
+    prospectName,
+    propertyName: tour.property.name,
+    propertyAddress: fullAddress,
+    propertyPhone: tour.property.phone,
+    agentName: tour.agent?.user.name ?? null,
+    scheduledDate: tour.scheduledDate.toISOString(),
+    scheduledTime: tour.scheduledTime,
+    tourType: tour.tourType,
+  }).catch((err) => console.error("Tour confirmation email failed:", err));
 
   return NextResponse.json(tour, { status: 201 });
 }

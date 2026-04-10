@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { TourBookingWidget } from "@/components/booking/TourBookingWidget";
 
 export default async function PropertyBookingPage({
@@ -200,15 +201,24 @@ export default async function PropertyBookingPage({
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-primary text-lg">
-                        ${unit.marketRent?.toLocaleString()}/mo
-                      </p>
-                      <p className="text-xs text-muted">
-                        {unit.availableDate
-                          ? `Available ${new Date(unit.availableDate).toLocaleDateString()}`
-                          : "Available now"}
-                      </p>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="font-semibold text-primary text-lg">
+                          ${unit.marketRent?.toLocaleString()}/mo
+                        </p>
+                        <p className="text-xs text-muted">
+                          {unit.availableDate
+                            ? `Available ${new Date(unit.availableDate).toLocaleDateString()}`
+                            : "Available now"}
+                        </p>
+                      </div>
+                      <Link
+                        href={`/book/${slug}/apply?company=${companySlug}&unitId=${unit.id}`}
+                        className="flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
+                      >
+                        Apply
+                        <span className="material-icons text-[16px]">arrow_forward</span>
+                      </Link>
                     </div>
                   </div>
                 ))}

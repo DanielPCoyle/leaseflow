@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUser, unauthorized, notFound } from "@/lib/api-auth";
+import { getAuthenticatedUser, unauthorized, notFound, requireRole } from "@/lib/api-auth";
 
 export async function PATCH(
   request: NextRequest,
@@ -35,6 +35,8 @@ export async function DELETE(
 ) {
   const user = await getAuthenticatedUser();
   if (!user || !user.companyId) return unauthorized();
+  const roleCheck = requireRole(user.role, "PROPERTY_MANAGER");
+  if (roleCheck) return roleCheck;
 
   const { id } = await params;
 

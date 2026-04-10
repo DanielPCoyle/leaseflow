@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUser, unauthorized, badRequest } from "@/lib/api-auth";
+import { getAuthenticatedUser, unauthorized, badRequest, requireRole } from "@/lib/api-auth";
 
 export async function GET() {
   const user = await getAuthenticatedUser();
@@ -54,6 +54,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser();
   if (!user || !user.companyId) return unauthorized();
+  const roleCheck = requireRole(user.role, "PROPERTY_MANAGER");
+  if (roleCheck) return roleCheck;
 
   const body = await request.json();
   const { name, slug, address, city, state, zip, regionId, ...rest } = body;

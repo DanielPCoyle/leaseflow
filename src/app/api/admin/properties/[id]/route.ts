@@ -4,6 +4,7 @@ import {
   getAuthenticatedUser,
   unauthorized,
   notFound,
+  requireRole,
 } from "@/lib/api-auth";
 
 export async function GET(
@@ -73,6 +74,8 @@ export async function DELETE(
 ) {
   const user = await getAuthenticatedUser();
   if (!user || !user.companyId) return unauthorized();
+  const roleCheck = requireRole(user.role, "COMPANY_ADMIN");
+  if (roleCheck) return roleCheck;
 
   const { id } = await params;
 
